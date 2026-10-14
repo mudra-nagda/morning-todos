@@ -27,13 +27,19 @@
   </main>
 
   <section id="shapes" hidden>
-    <div class="stage">
-      <div id="train" aria-label="Todos to sort"></div>
-      <svg id="field" role="group" aria-label="Your todos as shapes"></svg>
-      <div id="labels"></div>
-      <p class="allclear" id="allclear" hidden>All clear.</p>
+    <div id="score" aria-label="Done today"></div>
+    <div class="upper">
+      <div class="track">
+        <div id="front"></div>
+        <div id="line" aria-label="Up next"></div>
+      </div>
+      <div id="focus"></div>
     </div>
-    <div id="shelf" aria-label="Done so far"></div>
+    <div class="lower">
+      <svg id="field" role="group" aria-label="Your groups"></svg>
+      <div id="labels"></div>
+      <button id="add-group" title="Add a group" aria-label="Add a group">+</button>
+    </div>
   </section>
   <div id="card" role="dialog" aria-label="Todo details" hidden></div>
 

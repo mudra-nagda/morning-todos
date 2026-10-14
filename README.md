@@ -8,17 +8,11 @@ A personal todo page that rebuilds itself every morning at **8am Pacific** from:
 
 When someone left a message, review or question, it shows in a small box under the todo with their name.
 
-Switch between **List** and **Shapes** at the top. In Shapes, every open todo is a small 3D object that collects at the centre of the screen. The object depends on the task type:
+Switch between **List** and **Shapes** at the top.
 
-- red star: do first
-- blue cube: your PRs
-- green pyramid: ready to merge
-- amber sphere: reviews for others
-- purple gem: Slack
-- teal hexagonal prism: Linear
-- grey pentagonal prism: cleanup
+**Shapes** is for sorting your morning. The todo you're deciding on sits in the middle of the page as a big 3D shape, with what to do and who said what underneath it. The rest of today's unsorted todos queue up to its right, off the edge of the screen; scroll sideways, or click one to bring it to the middle. Sort it into a group along the bottom (click the group, drag the shape down, or press its number), mark it **Done** (`D`), or **Skip** it to the end of the line (`→`). Groups start as *Now · Today · Later*; double-click a name to rename it, or press **+** to add one. A small scorecard in the top right counts what you've finished of each kind.
 
-Each morning, today's unsorted todos line up as a **train** across the top, in priority order. The one at the front shows its details. Sort it into a group (click the group's button, press its number, or drag the shape there), leave it unsorted in the middle (`0`), or tick it done, and the next one moves up. You start with three groups, *Now*, *Today* and *Later*. Click a group's name to rename it, or drag a shape into open space to start a new one. Groups can mix shape types and stay put from day to day; only new todos join the train. Click any shape in a group to see its details again. Along the bottom is a shelf with an empty socket for every todo, grouped by type. When you tick a todo done, its object flies into its socket and stays there, so the shelf shows how far through the day you are.
+Shapes: red star = do first · blue cube = your PRs · green pyramid = ready to merge · amber sphere = reviews for others · purple gem = Slack · teal prism = Linear · grey prism = cleanup.
 
 You can tick off a whole todo, or **select any part of a todo** to tick off just that part or split it into its own todo. Ticks and splits carry over to the next morning.
 
