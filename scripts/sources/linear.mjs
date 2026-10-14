@@ -56,7 +56,7 @@ export async function linearTodos({ apiKey, now }) {
       id: `linear:${issue.identifier}`,
       section: urgent ? 'urgent' : 'linear',
       source: 'linear',
-      text: `${issue.state.type === 'triage' ? 'Triage ' : ''}${issue.identifier} — ${issue.title}`,
+      title: `${issue.state.type === 'triage' ? 'Triage ' : ''}${issue.identifier} — ${issue.title}`,
       links: [{ label: issue.identifier, url: issue.url }],
       since: issue.updatedAt,
       tags,
@@ -74,7 +74,7 @@ export async function linearTodos({ apiKey, now }) {
     if (n.type === 'projectUpdatePrompt') {
       const name = n.project?.name || n.title || 'your project';
       const url = n.project?.url || n.url;
-      items.push({ ...base, section: 'urgent', text: `Post the project update for ${name}`, links: url ? [{ label: 'Project', url }] : [], tags: ['due'] });
+      items.push({ ...base, section: 'urgent', title: `Post the project update for ${name}`, links: url ? [{ label: 'Project', url }] : [], tags: ['due'] });
       continue;
     }
 
@@ -89,7 +89,8 @@ export async function linearTodos({ apiKey, now }) {
     items.push({
       ...base,
       section: 'linear',
-      text: `${mention ? 'Reply to' : 'New comment from'} ${actor} on ${subject}${snippet ? `\n“${clip(snippet)}”` : ''}`,
+      title: `${mention ? 'Reply to' : 'New comment from'} ${actor} on ${subject}`,
+      context: snippet ? [{ who: actor, text: clip(snippet, 320) }] : [],
       links: [{ label: n.issue?.identifier || 'Linear', url }],
       tags: [],
     });

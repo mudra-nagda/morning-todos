@@ -47,19 +47,16 @@ export async function githubTodos({ token, repos, now }) {
     const lastCommit = pr.commits.nodes[0]?.commit;
     const tags = [];
     if (['FAILURE', 'ERROR'].includes(lastCommit?.statusCheckRollup?.state)) tags.push('CI failing');
-    if (pr.mergeable === 'CONFLICTING') tags.push('Conflicts');
+    if (pr.mergeable === 'CONFLICTING') tags.push('conflicts');
 
     if (age(pr.createdAt) > 21 && age(pr.updatedAt) > 14) {
-      items.push({
-        ...base, id: `gh:pr:${pr.number}:stale`, section: 'cleanup',
-        text: `Close or revive ${ref} — ${pr.title}`,
-        tags: [`untouched ${Math.floor(age(pr.updatedAt))}d`],
-      });
+      items.push({ ...base, id: `gh:pr:${pr.number}:stale`, section: 'cleanup', title: `Close or revive ${ref} — ${pr.title}`, tags: [`untouched ${Math.floor(age(pr.updatedAt))}d`] });
       continue;
     }
 
     // Each reviewer's current verdict (GitHub's own per-person latest), ignoring you and bots.
     const human = (author) => author?.login && author.__typename !== 'Bot' && author.login !== me && !author.login.endsWith('[bot]');
+    const said = (r) => (r.body?.trim() ? { who: r.author.login, text: clip(r.body, 320) } : null);
     const verdicts = pr.latestOpinionatedReviews.nodes.filter((r) => human(r.author));
     const blocking = verdicts.filter((r) => r.state === 'CHANGES_REQUESTED');
     const approvals = verdicts.filter((r) => r.state === 'APPROVED');
@@ -70,10 +67,11 @@ export async function githubTodos({ token, repos, now }) {
     const newerComments = pr.reviews.nodes.filter((r) => human(r.author) && r.state === 'COMMENTED' && r.submittedAt > lastPush);
     const respond = () => {
       const names = [...new Set(newerComments.map((r) => r.author.login))].join(', ');
-      const quote = newerComments.map((r) => r.body?.trim()).filter(Boolean).at(-1);
+      const latest = newerComments.filter((r) => r.body?.trim()).at(-1);
       items.push({
         ...base, id: `gh:pr:${pr.number}:respond`, section: 'prs', tags,
-        text: `Respond to ${names}'s comments on ${ref} — ${pr.title}${quote ? `\n“${clip(quote)}”` : ''}`,
+        title: `Respond to ${names} on ${ref} — ${pr.title}`,
+        context: latest ? [said(latest)] : [],
       });
     };
 
@@ -82,15 +80,12 @@ export async function githubTodos({ token, repos, now }) {
       const lastRequest = blocking.map((r) => r.submittedAt).sort().at(-1);
       if (lastPush > lastRequest) {
         if (newerComments.length) respond();
-        else items.push({
-          ...base, id: `gh:pr:${pr.number}:ping`, section: 'prs', tags,
-          text: `Ask ${names} to re-review ${ref} — ${pr.title}\nYou pushed after their change request.`,
-        });
+        else items.push({ ...base, id: `gh:pr:${pr.number}:ping`, section: 'prs', tags, title: `Ask ${names} to re-review ${ref} — ${pr.title}` });
       } else {
-        const quote = blocking.map((r) => r.body?.trim()).find(Boolean);
         items.push({
           ...base, id: `gh:pr:${pr.number}:address`, section: 'prs', tags,
-          text: `Address ${names}'s changes on ${ref} — ${pr.title}${quote ? `\n“${clip(quote)}”` : ''}`,
+          title: `Address ${names}'s changes on ${ref} — ${pr.title}`,
+          context: blocking.map(said).filter(Boolean),
         });
       }
       continue;
@@ -99,11 +94,9 @@ export async function githubTodos({ token, repos, now }) {
     if (approved) {
       const parent = byHead.get(pr.baseRefName);
       const verb = pr.mergeable === 'CONFLICTING' ? `Rebase and merge ${ref}` : parent ? `Merge ${ref} after #${parent.number}` : `Merge ${ref}`;
-      // Approvals often carry "before you merge…" asks; surface anything beyond an lgtm.
-      const notes = approvals
-        .filter((r) => r.body && !/^\W*(lgtm|lg|looks good|approved?)\W*$/i.test(clip(r.body, 400)))
-        .map((r) => `${r.author.login}: “${clip(r.body, 180)}”`);
-      items.push({ ...base, id: `gh:pr:${pr.number}:merge`, section: 'merge', text: [`${verb} — ${pr.title}`, ...notes].join('\n'), tags });
+      // Approvals often carry "before you merge…" asks; keep anything beyond an lgtm.
+      const notes = approvals.filter((r) => r.body && !/^\W*(lgtm|lg|looks good|approved?)\W*$/i.test(clip(r.body, 400))).map(said);
+      items.push({ ...base, id: `gh:pr:${pr.number}:merge`, section: 'merge', title: `${verb} — ${pr.title}`, context: notes, tags });
       continue;
     }
 
@@ -115,12 +108,9 @@ export async function githubTodos({ token, repos, now }) {
     const requested = pr.reviewRequests.nodes.map((n) => n.requestedReviewer?.login || n.requestedReviewer?.name).filter(Boolean);
     const anyFeedback = pr.reviews.nodes.some((r) => human(r.author));
     if (!requested.length && !anyFeedback) {
-      items.push({ ...base, id: `gh:pr:${pr.number}:reviewer`, section: 'prs', text: `Find a reviewer for ${ref} — ${pr.title}`, tags });
+      items.push({ ...base, id: `gh:pr:${pr.number}:reviewer`, section: 'prs', title: `Find a reviewer for ${ref} — ${pr.title}`, tags });
     } else {
-      items.push({
-        ...base, id: `gh:pr:${pr.number}:waiting`, section: 'waiting', tags,
-        text: `${ref} — ${pr.title}\nWaiting on ${requested.join(', ') || 'reviewers'}`,
-      });
+      items.push({ ...base, id: `gh:pr:${pr.number}:waiting`, section: 'waiting', title: `${ref} — ${pr.title}`, tags: [`waiting on ${requested.join(', ') || 'reviewers'}`, ...tags] });
     }
   }
 
@@ -128,10 +118,10 @@ export async function githubTodos({ token, repos, now }) {
     if (pr.author?.login === me) continue;
     items.push({
       id: `gh:review:${pr.number}`, section: 'reviews', source: 'github',
-      text: `Review #${pr.number} — ${pr.title}\nby ${pr.author?.login ?? 'unknown'}`,
+      title: `Review #${pr.number} — ${pr.title}`,
       links: [{ label: `#${pr.number}`, url: pr.url }],
       since: pr.createdAt,
-      tags: pr.isDraft ? ['draft'] : [],
+      tags: [`by ${pr.author?.login ?? 'unknown'}`, ...(pr.isDraft ? ['draft'] : [])],
     });
   }
 

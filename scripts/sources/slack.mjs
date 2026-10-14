@@ -80,11 +80,13 @@ export async function slackTodos({ token, now }) {
     if (answered) continue;
 
     const where = m.channel.is_im ? 'in DM' : m.channel.is_mpim ? 'in group DM' : `in #${m.channel.name}`;
+    const who = await nameOf(m.user);
     items.push({
       id: `slack:${key}`,
       section: 'slack',
       source: 'slack',
-      text: `Reply to ${await nameOf(m.user)} ${where}\n“${clip(await readable(m.text), 240)}”`,
+      title: `Reply to ${who} ${where}`,
+      context: [{ who, text: clip(await readable(m.text), 320) }],
       links: m.permalink ? [{ label: 'Open in Slack', url: m.permalink }] : [],
       since: isoFromSlackTs(m.ts),
       tags,

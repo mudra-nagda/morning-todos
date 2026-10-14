@@ -6,7 +6,9 @@ A personal todo page that rebuilds itself every morning at **8am Pacific** from:
 - **Linear**: issues assigned to you (anything with an SLA due within 48h, or on-call, goes to the top), unread mentions, and project update reminders
 - **Slack**: @mentions and DMs from the last few days that you haven't replied to (it checks thread replies, not just the top-level message)
 
-You can tick off a whole todo, or **select any part of a todo** to tick off just that part or split it into its own todo. Ticks and splits carry over to the next morning. Anything resolved upstream overnight is listed under "resolved overnight".
+When someone left a message, review or question, it shows in a small box under the todo with their name.
+
+You can tick off a whole todo, or **select any part of a todo** to tick off just that part or split it into its own todo. Ticks and splits carry over to the next morning.
 
 ## Privacy
 
