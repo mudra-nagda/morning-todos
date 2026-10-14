@@ -44,7 +44,7 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 .remove { border: 0; background: none; padding: 0; color: var(--muted); }
 
-#selbar { position: absolute; z-index: 10; display: flex; transform: translateX(-50%); border: 1px solid var(--line); border-radius: 8px; background: Canvas; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); overflow: hidden; }
+#selbar { position: absolute; z-index: 40; display: flex; transform: translateX(-50%); border: 1px solid var(--line); border-radius: 8px; background: Canvas; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); overflow: hidden; }
 #selbar button { border: 0; background: none; padding: 6px 12px; font-size: 13px; }
 #selbar button + button { border-left: 1px solid var(--line); }
 #selbar button:hover { text-decoration: underline; }
@@ -55,3 +55,35 @@ ul { list-style: none; margin: 0; padding: 0; }
 #unlock button { justify-self: start; padding: 6px 14px; border: 1px solid currentColor; border-radius: 6px; background: none; }
 .error { color: var(--alert) !important; min-height: 1em; }
 .empty { margin-top: 40px; color: var(--muted); }
+
+.views { margin: 10px 0 0; font-size: 13px; display: flex; gap: 12px; }
+.views button { border: 0; background: none; padding: 0; color: var(--muted); }
+.views button[aria-pressed="true"] { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; }
+
+#shapes { position: fixed; left: 0; right: 0; bottom: 0; }
+#field { display: block; width: 100%; height: 100%; }
+#legend { position: absolute; top: 0; left: 0; right: 0; margin: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; font-size: 12px; color: var(--muted); }
+#legend span { display: inline-flex; align-items: center; gap: 5px; }
+.allclear { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; color: var(--muted); }
+
+.shape { fill: none; stroke: currentColor; stroke-width: 1.5; vector-effect: non-scaling-stroke; transition: fill 0.15s; }
+.body { cursor: pointer; outline: none; }
+.body .shape { pointer-events: all; }
+.body:hover .shape, .body:focus-visible .shape { fill: rgba(128, 128, 128, 0.2); }
+.body.selected .shape { fill: currentColor; }
+.body.urgent .shape, .flyer.urgent .shape { stroke: var(--alert); }
+.body.urgent.selected .shape { fill: var(--alert); }
+.body.leaving { opacity: 0.4; }
+
+#card { position: fixed; z-index: 20; left: 50%; bottom: 24px; transform: translateX(-50%); width: min(560px, calc(100vw - 32px)); max-height: 55vh; overflow: auto; padding: 4px 40px 4px 16px; background: Canvas; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12); }
+#card .todo { border-bottom: 0; }
+#card .close { position: absolute; top: 10px; right: 12px; border: 0; background: none; padding: 0; color: var(--muted); font-size: 18px; line-height: 1; }
+
+#tray { position: fixed; z-index: 25; left: 50%; bottom: 0; transform: translate(-50%, 110%); transition: transform 0.35s cubic-bezier(0.3, 0.7, 0.2, 1); max-width: calc(100vw - 24px); padding: 12px 20px 18px; background: Canvas; border: 1px solid var(--line); border-bottom: 0; border-radius: 12px 12px 0 0; box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.08); text-align: center; }
+#tray.open { transform: translate(-50%, 0); }
+.tray-label { margin-bottom: 10px; font-size: 12px; color: var(--muted); }
+.slots { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.slot .shape { stroke-dasharray: 3 3; opacity: 0.55; }
+.slot.filled .shape { fill: currentColor; stroke-dasharray: none; opacity: 1; }
+.flyer { position: fixed; z-index: 30; pointer-events: none; overflow: visible; }
+.flyer .shape { fill: currentColor; }

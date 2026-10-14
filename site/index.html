@@ -13,6 +13,7 @@
     <header>
       <h1 id="today">Morning list</h1>
       <p class="sub"><span id="refreshed"></span><span id="progress"></span><button id="hide-done" class="link" hidden></button></p>
+      <p class="views" id="views" hidden><button data-view="list">List</button><button data-view="shapes">Shapes</button></p>
     </header>
     <p class="notice" id="notice" hidden></p>
     <div id="list"></div>
@@ -24,6 +25,14 @@
       <p class="error" id="unlock-error" role="alert"></p>
     </form>
   </main>
+
+  <section id="shapes" hidden>
+    <p id="legend"></p>
+    <svg id="field" role="group" aria-label="Your todos as shapes"></svg>
+    <p class="allclear" id="allclear" hidden>All clear.</p>
+  </section>
+  <div id="card" role="dialog" aria-label="Todo details" hidden></div>
+  <div id="tray" aria-hidden="true" hidden></div>
 
   <div id="selbar" role="toolbar" aria-label="Selected text" hidden>
     <button data-action="done">Tick off</button>

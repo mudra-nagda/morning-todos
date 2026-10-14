@@ -1,3 +1,5 @@
+import { createShapesView, shapeIcon, SHAPE_FOR } from './shapes.js';
+
 const STATE_KEY = 'morning-todos:v2';
 const PASS_KEY = 'morning-todos:passphrase';
 const DAY = 864e5;
@@ -19,6 +21,7 @@ function loadState() {
     items: raw?.items ?? {},   // id -> { done, ranges: [{ field, start, end, text, kind, splitId }], seenAt }
     splits: raw?.splits ?? [], // { id, parentId, section, title, links }
     hideDone: Boolean(raw?.hideDone),
+    view: raw?.view === 'shapes' ? 'shapes' : 'list',
   };
 }
 
@@ -91,7 +94,8 @@ function start() {
     if (!id.startsWith('split:') && now - (s.seenAt || 0) > 14 * DAY) delete state.items[id];
   }
   save();
-  render();
+  $('#views').hidden = false;
+  renderAll();
 }
 
 // ---------- render ----------
@@ -273,8 +277,8 @@ function act(action, sel) {
   save();
   getSelection().removeAllRanges();
   $('#selbar').hidden = true;
-  render();
-  if (flashId) flash(flashId);
+  renderAll();
+  if (flashId && state.view === 'list') flash(flashId);
 }
 
 function flash(id) {
@@ -284,6 +288,101 @@ function flash(id) {
   row.classList.remove('flash');
   void row.offsetWidth;
   row.classList.add('flash');
+}
+
+// ---------- shapes view ----------
+
+const shapes = createShapesView({
+  field: $('#field'),
+  tray: $('#tray'),
+  onSelect: openCard,
+  onBackground: closeCard,
+});
+let openId = null;
+
+// Every open todo (not "waiting on others"), with split-off todos taking their parent's shape.
+function shapeTasks() {
+  const byId = new Map(data.items.map((i) => [i.id, i]));
+  const tasks = [];
+  const add = (item, section, small) => {
+    if (itemState(item.id).done) return;
+    tasks.push({ id: item.id, section, shape: SHAPE_FOR[section] || 'circle', label: item.title, small, urgent: section === 'urgent' });
+  };
+  for (const item of data.items) if (item.section !== 'waiting') add(item, item.section, false);
+  for (const split of state.splits) {
+    const parent = byId.get(split.parentId);
+    if (parent?.section === 'waiting') continue;
+    add(split, parent ? parent.section : 'orphans', true);
+  }
+  return tasks;
+}
+
+function trayFor(id) {
+  const item = findItem(id);
+  const section = item.id.startsWith('split:') ? (data.items.find((i) => i.id === item.parentId)?.section ?? 'orphans') : item.section;
+  const sectionOf = (other) => (other.id.startsWith('split:') ? (data.items.find((i) => i.id === other.parentId)?.section ?? 'orphans') : other.section);
+  const members = [...data.items, ...state.splits].filter((other) => sectionOf(other) === section);
+  return {
+    shape: SHAPE_FOR[section] || 'circle',
+    title: [...data.sections, { id: 'orphans', title: 'Split out' }].find((s) => s.id === section)?.title ?? '',
+    slots: members.map((other) => ({ id: other.id, done: other.id !== id && itemState(other.id).done })),
+  };
+}
+
+function renderShapes() {
+  const tasks = shapeTasks();
+  shapes.sync(tasks);
+  $('#allclear').hidden = tasks.length > 0;
+
+  const counts = new Map();
+  for (const t of tasks) counts.set(t.section, (counts.get(t.section) || 0) + 1);
+  const legend = $('#legend');
+  legend.replaceChildren();
+  for (const section of [...data.sections, { id: 'orphans', title: 'Split out' }]) {
+    if (!counts.get(section.id)) continue;
+    legend.append(el('span', {}, shapeIcon(SHAPE_FOR[section.id], 14), `${section.title} ${counts.get(section.id)}`));
+  }
+
+  if (openId) {
+    const item = findItem(openId);
+    if (!item || itemState(openId).done) closeCard();
+    else fillCard(item);
+  }
+}
+
+function openCard(id) {
+  openId = id;
+  shapes.select(id);
+  fillCard(findItem(id));
+}
+
+function fillCard(item) {
+  const card = $('#card');
+  card.replaceChildren(
+    el('button', { class: 'close', 'aria-label': 'Close' }, '×'),
+    el('ul', {}, renderTodo(item)),
+  );
+  card.hidden = false;
+  card.querySelector('.close').onclick = closeCard;
+}
+
+function closeCard() {
+  openId = null;
+  shapes.select(null);
+  $('#card').hidden = true;
+}
+
+function renderAll() {
+  const shapesView = state.view === 'shapes';
+  for (const button of document.querySelectorAll('[data-view]')) button.setAttribute('aria-pressed', String(button.dataset.view === state.view));
+  render();
+  $('#list').hidden = shapesView;
+  $('#hide-done').hidden = shapesView || $('#hide-done').hidden;
+  $('#shapes').hidden = !shapesView;
+  if (!shapesView) return;
+  const top = Math.max($('header').getBoundingClientRect().bottom, $('#notice').hidden ? 0 : $('#notice').getBoundingClientRect().bottom);
+  $('#shapes').style.top = `${top + 16}px`;
+  renderShapes();
 }
 
 // ---------- events ----------
@@ -302,13 +401,19 @@ $('#selbar').addEventListener('click', (event) => {
   if (action && sel) act(action, sel);
 });
 
-$('#list').addEventListener('click', (event) => {
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('.todo')) return;
   const check = event.target.closest('[data-check]');
   if (check) {
-    const s = itemState(check.dataset.check);
+    const id = check.dataset.check;
+    const s = itemState(id);
     s.done = !s.done;
     save();
-    return render();
+    if (state.view === 'shapes' && s.done) {
+      closeCard();
+      shapes.complete(id, trayFor(id));
+    }
+    return renderAll();
   }
   const remove = event.target.closest('[data-remove]');
   if (remove) {
@@ -317,7 +422,7 @@ $('#list').addEventListener('click', (event) => {
     delete state.items[id];
     for (const s of Object.values(state.items)) s.ranges = s.ranges.filter((r) => r.splitId !== id);
     save();
-    return render();
+    return renderAll();
   }
   if (!getSelection().isCollapsed) return;
   const moved = event.target.closest('.part-moved');
@@ -329,7 +434,7 @@ $('#list').addEventListener('click', (event) => {
     const target = rangesFor(findItem(host.dataset.id), host.dataset.field).find((r) => r.kind === 'done' && r.start === Number(ticked.dataset.start));
     s.ranges = s.ranges.filter((r) => !(target && r.text === target.text && (r.field ?? 'title') === host.dataset.field && r.kind === 'done'));
     save();
-    render();
+    renderAll();
   }
 });
 
@@ -337,6 +442,19 @@ $('#hide-done').addEventListener('click', () => {
   state.hideDone = !state.hideDone;
   save();
   render();
+});
+
+$('#views').addEventListener('click', (event) => {
+  const view = event.target.closest('[data-view]')?.dataset.view;
+  if (!view || view === state.view) return;
+  state.view = view;
+  save();
+  closeCard();
+  renderAll();
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeCard();
 });
 
 boot();
