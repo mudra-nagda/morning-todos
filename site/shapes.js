@@ -146,11 +146,11 @@ export function solidIcon(type, size, className = '') {
 }
 
 // Every shape is pulled toward its group's anchor like a magnet and pushed off
-// its neighbours, so groups settle into loose clusters. The main group's anchor is
-// the centre of the screen; groups you make by dragging sit where you made them.
-export function createShapesView({ field, shelf, onSelect, onBackground, onLanded, onLayout }) {
+// its neighbours, so groups settle into loose clusters. The middle ("main") is the
+// centre of the screen and holds anything left unsorted.
+export function createShapesView({ field, shelf, labels, onSelect, onBackground, onLanded, onLayout, onPlaced, onRename }) {
   const bodies = new Map();
-  const groups = new Map(); // id -> { x, y } for groups you've made; 'main' is always the centre
+  const groups = new Map(); // id -> { x, y, name }
   const flying = new Set();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const halos = svg('g', { class: 'halos' });
@@ -160,13 +160,14 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
   let frames = 0;
   let queue = Promise.resolve();
   let drag = null;
+  let editing = null;
 
   function measure() {
     const rect = field.getBoundingClientRect();
     const old = size;
     size = { w: rect.width, h: rect.height };
     field.setAttribute('viewBox', `0 0 ${size.w} ${size.h}`);
-    // Keep made groups in the same relative spot when the window changes size.
+    // Keep groups in the same relative spot when the window changes size.
     if (old.w && size.w) {
       for (const g of groups.values()) {
         g.x *= size.w / old.w;
@@ -182,15 +183,28 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
   const anchorOf = (id) => (id !== 'main' && groups.get(id)) || { x: size.w / 2, y: size.h / 2 };
   const active = () => [...bodies.values()].filter((b) => !b.leaving);
 
-  // tasks: [{ id, shape, label, small, group }], anchors: { groupId: { fx, fy } } as fractions of the field.
-  function sync(tasks, anchors = {}) {
+  function makeBody(task, x, y) {
+    const r = task.small ? 15 : 23;
+    const body = { id: task.id, r, x, y, vx: 0, vy: 0, group: groups.has(task.group) ? task.group : 'main' };
+    body.g = svg('g', { class: 'body', role: 'button', tabindex: '0', 'data-id': task.id });
+    body.title = svg('title');
+    body.g.append(body.title, solid(task.shape, r));
+    field.append(body.g);
+    bodies.set(task.id, body);
+    return body;
+  }
+
+  // tasks: [{ id, shape, label, small, group, spawn? }]
+  // anchors: { groupId: { fx, fy } } as fractions of the field; names: { groupId: name }
+  function sync(tasks, anchors = {}, names = {}) {
     if (!size.w) measure();
     for (const [id, a] of Object.entries(anchors)) {
       if (!groups.has(id)) groups.set(id, { x: a.fx * size.w, y: a.fy * size.h });
     }
+    for (const [id, g] of groups) g.name = names[id] ?? '';
     const keep = new Set(tasks.map((t) => t.id));
     for (const [id, body] of bodies) {
-      if (!keep.has(id) && !body.leaving) {
+      if (!keep.has(id) && !body.leaving && !body.dragging) {
         body.g.remove();
         bodies.delete(id);
       }
@@ -198,18 +212,21 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
     for (const task of tasks) {
       let body = bodies.get(task.id);
       if (!body) {
-        const r = task.small ? 15 : 23;
-        const angle = Math.random() * Math.PI * 2;
-        const distance = (reduced ? 40 : Math.max(size.w, size.h, 600) * 0.6) * (0.9 + Math.random() * 0.2);
-        body = { id: task.id, r, x: size.w / 2 + Math.cos(angle) * distance, y: size.h / 2 + Math.sin(angle) * distance, vx: 0, vy: 0 };
-        body.g = svg('g', { class: 'body', role: 'button', tabindex: '0', 'data-id': task.id });
-        body.title = svg('title');
-        body.g.append(body.title, solid(task.shape, r));
-        field.append(body.g);
-        bodies.set(task.id, body);
-        body.group = groups.has(task.group) ? task.group : 'main';
+        let x;
+        let y;
+        if (task.spawn) ({ x, y } = task.spawn);
+        else {
+          const angle = Math.random() * Math.PI * 2;
+          const distance = (reduced ? 40 : Math.max(size.w, size.h, 600) * 0.6) * (0.9 + Math.random() * 0.2);
+          x = size.w / 2 + Math.cos(angle) * distance;
+          y = size.h / 2 + Math.sin(angle) * distance;
+        }
+        body = makeBody(task, x, y);
+      } else if (!body.dragging && groups.has(task.group) && body.group !== task.group) {
+        body.group = task.group;
+      } else if (!body.dragging && task.group === 'main') {
+        body.group = 'main';
       }
-      body.shape = task.shape;
       body.title.textContent = task.label;
       body.g.setAttribute('aria-label', task.label);
     }
@@ -218,16 +235,17 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
     kick();
   }
 
+  // Named groups stay even when empty; unnamed ones you made by dragging go away.
   function dropEmptyGroups() {
     const used = new Set(active().map((b) => b.group));
-    for (const id of groups.keys()) if (!used.has(id)) groups.delete(id);
+    for (const [id, g] of groups) if (!used.has(id) && !g.name && editing !== id) groups.delete(id);
   }
 
   function layout() {
     const anchors = {};
     for (const [id, g] of groups) anchors[id] = { fx: g.x / size.w, fy: g.y / size.h };
     const membership = {};
-    for (const b of active()) if (b.group !== 'main') membership[b.id] = b.group;
+    for (const b of active()) membership[b.id] = b.group;
     return { anchors, membership };
   }
 
@@ -310,11 +328,16 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
     return list.reduce((sum, b) => sum + b.vx * b.vx + b.vy * b.vy, 0);
   }
 
-  // Groups you've made drift apart from each other and from the main cluster if they crowd it.
-  function separateGroups(list) {
+  const countIn = (list) => {
     const counts = new Map();
     for (const b of list) counts.set(b.group, (counts.get(b.group) || 0) + 1);
-    const reach = (id) => Math.sqrt(counts.get(id) || 1) * 26 + 24;
+    return counts;
+  };
+  const reachFor = (counts) => (id) => Math.sqrt(counts.get(id) || 1) * 26 + 30;
+
+  // Groups drift apart from each other and from the middle if they crowd it.
+  function separateGroups(list) {
+    const reach = reachFor(countIn(list));
     const ids = ['main', ...groups.keys()];
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
@@ -336,9 +359,9 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
       }
     }
     for (const [id, g] of groups) {
-      const margin = reach(id);
+      const margin = reach(id) + 4;
       g.x = Math.min(Math.max(g.x, margin), size.w - margin);
-      g.y = Math.min(Math.max(g.y, margin), size.h - margin);
+      g.y = Math.min(Math.max(g.y, margin + 16), size.h - margin);
     }
   }
 
@@ -352,33 +375,80 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
       paintOrder = order;
       for (const b of ordered) field.append(b.g);
     }
-    drawHalos(ordered);
+    drawGroups(ordered);
   }
 
-  // A faint dashed outline around each group you've made, so it reads as a bucket.
-  function drawHalos(list) {
-    const members = new Map();
-    for (const b of list) {
-      if (b.group === 'main' || b.dragging) continue;
-      if (!members.has(b.group)) members.set(b.group, []);
-      members.get(b.group).push(b);
-    }
+  // Each group gets a faint dashed outline and its name above it; the middle gets an "Unsorted" label.
+  function drawGroups(list) {
+    const members = new Map([['main', []], ...[...groups.keys()].map((id) => [id, []])]);
+    for (const b of list) if (!b.dragging) members.get(b.group)?.push(b);
     const seen = new Set();
+    const fieldRect = field.getBoundingClientRect();
+    const labelsRect = labels.getBoundingClientRect();
+    const fieldBox = { left: fieldRect.left - labelsRect.left, top: fieldRect.top - labelsRect.top };
     for (const [id, group] of members) {
-      if (group.length < 2) continue;
+      const named = id !== 'main' && groups.get(id)?.name;
+      if (id === 'main' ? !group.length : !named && group.length < 2) continue;
       seen.add(id);
-      const cx = group.reduce((s, b) => s + b.x, 0) / group.length;
-      const cy = group.reduce((s, b) => s + b.y, 0) / group.length;
-      const r = Math.max(...group.map((b) => Math.hypot(b.x - cx, b.y - cy) + b.r)) + 14;
-      let halo = halos.querySelector(`[data-group="${id}"]`);
-      if (!halo) halos.append((halo = svg('circle', { class: 'halo', 'data-group': id })));
-      halo.setAttribute('cx', cx.toFixed(1));
-      halo.setAttribute('cy', cy.toFixed(1));
-      halo.setAttribute('r', r.toFixed(1));
-      halo.classList.toggle('target', drag?.target?.group === id);
+      const anchor = anchorOf(id);
+      const cx = group.length ? group.reduce((s, b) => s + b.x, 0) / group.length : anchor.x;
+      const cy = group.length ? group.reduce((s, b) => s + b.y, 0) / group.length : anchor.y;
+      const r = Math.max(42, ...group.map((b) => Math.hypot(b.x - cx, b.y - cy) + b.r + 14));
+      if (id !== 'main') {
+        let halo = halos.querySelector(`[data-group="${id}"]`);
+        if (!halo) halos.append((halo = svg('circle', { class: 'halo', 'data-group': id })));
+        halo.setAttribute('cx', cx.toFixed(1));
+        halo.setAttribute('cy', cy.toFixed(1));
+        halo.setAttribute('r', r.toFixed(1));
+        halo.classList.toggle('target', drag?.target?.group === id || drag?.zone === id);
+      }
+      let label = labels.querySelector(`[data-group="${id}"]`);
+      if (!label) {
+        label = document.createElement(id === 'main' ? 'span' : 'button');
+        label.className = `group-name${id === 'main' ? ' unsorted' : ''}`;
+        label.dataset.group = id;
+        labels.append(label);
+      }
+      if (editing !== id) label.textContent = id === 'main' ? 'Unsorted' : named || 'Name this group';
+      label.classList.toggle('placeholder', id !== 'main' && !named);
+      label.style.left = `${fieldBox.left + cx}px`;
+      label.style.top = `${fieldBox.top + cy - r - 20}px`;
     }
     for (const halo of [...halos.children]) if (!seen.has(halo.dataset.group)) halo.remove();
+    for (const label of [...labels.children]) if (!seen.has(label.dataset.group)) label.remove();
   }
+
+  // Click a group's name to rename it. Clearing the name of an empty group removes it.
+  labels.addEventListener('click', (event) => {
+    const label = event.target.closest('button.group-name');
+    if (!label || editing) return;
+    const id = label.dataset.group;
+    editing = id;
+    const input = document.createElement('input');
+    input.className = 'group-name-input';
+    input.value = groups.get(id)?.name ?? '';
+    input.placeholder = 'Group name';
+    label.replaceChildren(input);
+    input.focus();
+    input.select();
+    const finish = (commit) => {
+      if (editing !== id) return;
+      editing = null;
+      const name = commit ? input.value.trim() : groups.get(id)?.name ?? '';
+      if (groups.has(id)) groups.get(id).name = name;
+      label.textContent = name || 'Name this group';
+      onRename(id, name);
+      dropEmptyGroups();
+      onLayout(layout());
+      draw();
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') finish(true);
+      if (e.key === 'Escape') finish(false);
+      e.stopPropagation();
+    });
+    input.addEventListener('blur', () => finish(true));
+  });
 
   function select(id) {
     field.classList.toggle('has-selection', Boolean(id));
@@ -392,7 +462,7 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   };
 
-  // The closest shape you're near enough to stick to, if any.
+  // What you'd stick to if you let go here: the nearest shape, or an empty named group's spot.
   function magnetFor(body) {
     let best = null;
     let bestDistance = Infinity;
@@ -406,12 +476,35 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
     }
     return best;
   }
+  function zoneFor(body) {
+    for (const [id, g] of groups) {
+      if (Math.hypot(g.x - body.x, g.y - body.y) < 56) return id;
+    }
+    return null;
+  }
+
+  function startDrag(body, event) {
+    drag.moved = true;
+    field.setPointerCapture(event.pointerId);
+    body.dragging = true;
+    body.g.classList.add('dragging');
+  }
 
   field.addEventListener('pointerdown', (event) => {
     if (event.button > 0) return;
     const g = event.target.closest('.body:not(.leaving)');
-    drag = { id: g?.dataset.id ?? null, x: event.clientX, y: event.clientY, moved: false, target: null };
+    drag = { id: g?.dataset.id ?? null, x: event.clientX, y: event.clientY, moved: false, target: null, zone: null };
   });
+
+  // Pick up a task from outside the field (the front of the train) and carry it in.
+  function carry(task, event) {
+    const p = local(event);
+    const body = bodies.get(task.id) || makeBody({ ...task, group: 'main' }, p.x, p.y);
+    body.fromOutside = true;
+    drag = { id: task.id, x: event.clientX, y: event.clientY, moved: false, target: null, zone: null };
+    startDrag(body, event);
+    kick();
+  }
 
   field.addEventListener('pointermove', (event) => {
     if (!drag?.id) return;
@@ -419,10 +512,7 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
     if (!body) return;
     if (!drag.moved) {
       if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 5) return;
-      drag.moved = true;
-      field.setPointerCapture(event.pointerId);
-      body.dragging = true;
-      body.g.classList.add('dragging');
+      startDrag(body, event);
     }
     const p = local(event);
     body.x = p.x;
@@ -435,12 +525,13 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
       target?.g.classList.add('magnet');
       drag.target = target;
     }
+    drag.zone = target ? null : zoneFor(body);
     kick();
   });
 
   function endDrag(event, cancelled) {
     if (!drag) return;
-    const { id, moved, target } = drag;
+    const { id, moved, target, zone } = drag;
     drag = null;
     if (!moved) {
       if (cancelled) return;
@@ -453,17 +544,25 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
     if (!body) return;
     body.dragging = false;
     body.g.classList.remove('dragging');
-    if (target) {
-      // Dropped next to a shape: join its group (or the main cluster).
-      body.group = target.group;
-    } else {
-      // Dropped in open space: this shape starts a new group right here.
+    if (cancelled && body.fromOutside) {
+      body.g.remove();
+      bodies.delete(id);
+      kick();
+      return;
+    }
+    if (target) body.group = target.group; // next to a shape: join its group (or the middle)
+    else if (zone) body.group = zone; // over an empty group's spot: join it
+    else {
+      // Open space: this shape starts a new group right here.
       const groupId = `g${Math.random().toString(36).slice(2, 8)}`;
-      groups.set(groupId, { x: body.x, y: body.y });
+      groups.set(groupId, { x: body.x, y: body.y, name: '' });
       body.group = groupId;
     }
+    const placedFromOutside = body.fromOutside;
+    body.fromOutside = false;
     dropEmptyGroups();
     onLayout(layout());
+    if (placedFromOutside) onPlaced(id, body.group);
     kick();
   }
   field.addEventListener('pointerup', (event) => endDrag(event, false));
@@ -479,9 +578,9 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
 
   // ---------- completing ----------
 
-  // The shape flies from its group into its socket on the shelf, and the socket
-  // fills in when it lands. Several completions take turns.
-  function complete(id, type) {
+  // The shape flies into its socket on the shelf, and the socket fills in when it
+  // lands. `from` is a screen rect for shapes that aren't in the field (the train).
+  function complete(id, type, from = null) {
     const body = bodies.get(id);
     flying.add(id);
     if (body) {
@@ -489,34 +588,40 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
       body.g.classList.remove('selected');
       body.g.classList.add('leaving');
     }
-    queue = queue.then(() => fly(id, body, type));
+    queue = queue.then(() => fly(id, body, type, from));
     return queue;
   }
 
-  async function fly(id, body, type) {
+  async function fly(id, body, type, fromRect) {
     const socket = shelf.querySelector(`[data-slot="${CSS.escape(id)}"]`);
-    if (body && socket) {
-      const fieldRect = field.getBoundingClientRect();
-      const socketRect = socket.getBoundingClientRect();
-      const from = { x: fieldRect.left + body.x, y: fieldRect.top + body.y };
-      const to = { x: socketRect.left + socketRect.width / 2, y: socketRect.top + socketRect.height / 2 };
-      const box = body.r * 2 + 8;
-      const flyer = svg('svg', { class: 'flyer', width: box, height: box, viewBox: `${-box / 2} ${-box / 2} ${box} ${box}` });
-      flyer.append(solid(type, body.r));
-      flyer.style.left = `${from.x - box / 2}px`;
-      flyer.style.top = `${from.y - box / 2}px`;
-      document.body.append(flyer);
+    const fieldRect = field.getBoundingClientRect();
+    const start = body
+      ? { x: fieldRect.left + body.x, y: fieldRect.top + body.y, r: body.r }
+      : fromRect
+        ? { x: fromRect.left + fromRect.width / 2, y: fromRect.top + fromRect.height / 2, r: fromRect.width / 2 - 4 }
+        : null;
+    if (body) {
       body.g.remove();
       bodies.delete(id);
       dropEmptyGroups();
       kick();
-      const scale = (socketRect.width / 2 - 2) / body.r;
-      const lift = Math.min(120, Math.abs(to.y - from.y) * 0.35);
+    }
+    if (start && socket) {
+      const socketRect = socket.getBoundingClientRect();
+      const to = { x: socketRect.left + socketRect.width / 2, y: socketRect.top + socketRect.height / 2 };
+      const box = start.r * 2 + 8;
+      const flyer = svg('svg', { class: 'flyer', width: box, height: box, viewBox: `${-box / 2} ${-box / 2} ${box} ${box}` });
+      flyer.append(solid(type, start.r));
+      flyer.style.left = `${start.x - box / 2}px`;
+      flyer.style.top = `${start.y - box / 2}px`;
+      document.body.append(flyer);
+      const scale = (socketRect.width / 2 - 2) / start.r;
+      const lift = Math.min(120, Math.abs(to.y - start.y) * 0.35);
       const flight = flyer.animate(
         [
           { transform: 'translate(0, 0) scale(1)' },
-          { transform: `translate(${(to.x - from.x) * 0.5}px, ${(to.y - from.y) * 0.5 - lift}px) scale(${(1 + scale) / 2 + 0.15})`, offset: 0.45 },
-          { transform: `translate(${to.x - from.x}px, ${to.y - from.y}px) scale(${scale})` },
+          { transform: `translate(${(to.x - start.x) * 0.5}px, ${(to.y - start.y) * 0.5 - lift}px) scale(${(1 + scale) / 2 + 0.15})`, offset: 0.45 },
+          { transform: `translate(${to.x - start.x}px, ${to.y - start.y}px) scale(${scale})` },
         ],
         { duration: reduced ? 0 : 750, easing: 'cubic-bezier(0.45, 0, 0.25, 1)', fill: 'forwards' },
       );
@@ -529,11 +634,6 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
       clearTimeout(backstop);
       document.removeEventListener('visibilitychange', landIfHidden);
       flyer.remove();
-    } else if (body) {
-      body.g.remove();
-      bodies.delete(id);
-      dropEmptyGroups();
-      kick();
     }
     flying.delete(id);
     // The app redraws the shelf from saved state, so a socket only fills if the todo is still done.
@@ -541,5 +641,16 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
     await wait(reduced ? 0 : 120);
   }
 
-  return { sync, select, complete, kick, isFlying: (id) => flying.has(id) };
+  return {
+    sync,
+    select,
+    complete,
+    carry,
+    kick,
+    isFlying: (id) => flying.has(id),
+    toField: (clientX, clientY) => {
+      const rect = field.getBoundingClientRect();
+      return { x: clientX - rect.left, y: clientY - rect.top };
+    },
+  };
 }

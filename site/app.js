@@ -22,8 +22,10 @@ function loadState() {
     splits: raw?.splits ?? [], // { id, parentId, section, title, links }
     hideDone: Boolean(raw?.hideDone),
     view: raw?.view === 'shapes' ? 'shapes' : 'list',
-    groupOf: raw?.groupOf ?? {}, // todo id -> group you dragged it into in the shapes view
+    groupOf: raw?.groupOf ?? {}, // todo id -> group you sorted it into ('main' = left unsorted in the middle)
     anchors: raw?.anchors ?? {}, // group id -> { fx, fy }, where that group sits on screen
+    groupNames: raw?.groupNames ?? {}, // group id -> name
+    seededGroups: Boolean(raw?.seededGroups),
   };
 }
 
@@ -293,10 +295,15 @@ function flash(id) {
 }
 
 // ---------- shapes view ----------
+//
+// Mornings start with a train of today's unsorted todos along the top. The one at
+// the front shows its details; you sort it into a group, leave it unsorted in the
+// middle, or tick it done, and the next one moves up.
 
 const shapes = createShapesView({
   field: $('#field'),
   shelf: $('#shelf'),
+  labels: $('#labels'),
   onSelect: openCard,
   onBackground: closeCard,
   onLanded: (id) => {
@@ -304,14 +311,32 @@ const shapes = createShapesView({
     $(`#shelf [data-slot="${CSS.escape(id)}"].filled`)?.classList.add('pop');
   },
   onLayout: ({ anchors, membership }) => {
-    // Keep groupings for done todos too, so a todo you un-tick goes back to its group.
-    const kept = Object.fromEntries(Object.entries(state.groupOf).filter(([id, g]) => itemState(id).done && anchors[g]));
+    // Keep where done todos were sorted too, so one you un-tick goes back to its group.
+    const kept = Object.fromEntries(Object.entries(state.groupOf).filter(([id, g]) => itemState(id).done && (g === 'main' || anchors[g])));
     state.groupOf = { ...kept, ...membership };
     state.anchors = anchors;
+    for (const id of Object.keys(state.groupNames)) if (!anchors[id]) delete state.groupNames[id];
     save();
+  },
+  onPlaced: (id, group) => sortInto(id, group, null),
+  onRename: (id, name) => {
+    if (name) state.groupNames[id] = name;
+    else delete state.groupNames[id];
+    save();
+    renderTrain();
   },
 });
 let openId = null;
+let spawn = null; // where a just-sorted shape enters the field from (the front of the train)
+
+// Three groups to start with; rename them, or drag a shape into open space to make more.
+function seedGroups() {
+  if (state.seededGroups) return;
+  state.anchors = { now: { fx: 0.16, fy: 0.42 }, today: { fx: 0.84, fy: 0.42 }, later: { fx: 0.5, fy: 0.84 }, ...state.anchors };
+  state.groupNames = { now: 'Now', today: 'Today', later: 'Later', ...state.groupNames };
+  state.seededGroups = true;
+  save();
+}
 
 const ALL_SECTIONS = () => [...data.sections, { id: 'orphans', title: 'Split out' }];
 
@@ -321,17 +346,76 @@ function sectionOf(item) {
   return data.items.find((i) => i.id === item.parentId)?.section ?? 'orphans';
 }
 
+// Where a todo has been sorted to, if anywhere. Split-off todos follow their parent.
+const groupFor = (item) => state.groupOf[item.id] ?? state.groupOf[item.parentId];
+
+// Every open todo in priority order (the list's order), with split-off todos after their parent.
+function openTodos() {
+  const ordered = [];
+  for (const item of data.items) {
+    ordered.push(item, ...state.splits.filter((s) => s.parentId === item.id));
+  }
+  ordered.push(...state.splits.filter((s) => !data.items.some((i) => i.id === s.parentId)));
+  return ordered.filter((item) => sectionOf(item) !== 'waiting' && !itemState(item.id).done);
+}
+
+const trainTodos = () => openTodos().filter((item) => groupFor(item) === undefined);
+
 function shapeTasks() {
-  return [...data.items, ...state.splits]
-    .filter((item) => sectionOf(item) !== 'waiting' && !itemState(item.id).done)
+  return openTodos()
+    .filter((item) => groupFor(item) !== undefined)
     .map((item) => ({
       id: item.id,
       shape: SHAPE_FOR[sectionOf(item)] || 'sphere',
       label: item.title,
       small: item.id.startsWith('split:'),
-      // Split-off todos start in their parent's group.
-      group: state.groupOf[item.id] ?? state.groupOf[item.parentId] ?? 'main',
+      group: groupFor(item),
+      spawn: spawn?.id === item.id ? spawn : null,
     }));
+}
+
+// Named groups, in the order they were made; these are the sort buttons (and keys 1–9).
+const namedGroups = () => Object.entries(state.groupNames).filter(([id, name]) => name && state.anchors[id]);
+
+function sortInto(id, group, fromEl) {
+  if (fromEl) {
+    const rect = fromEl.getBoundingClientRect();
+    spawn = { id, ...shapes.toField(rect.left + rect.width / 2, rect.top + rect.height / 2) };
+  }
+  state.groupOf[id] = group;
+  save();
+  renderAll();
+  spawn = null;
+}
+
+function renderTrain() {
+  const train = $('#train');
+  const queue = trainTodos();
+  train.replaceChildren();
+  if (!queue.length) {
+    const unsorted = shapeTasks().filter((t) => t.group === 'main');
+    train.append(el('p', { class: 'train-done' },
+      'All sorted.',
+      unsorted.length ? el('button', { class: 'link', 'data-resort': '' }, `Sort the ${unsorted.length} unsorted again`) : null,
+    ));
+    return;
+  }
+  const front = queue[0];
+  const type = SHAPE_FOR[sectionOf(front)] || 'sphere';
+  const frontShape = solidIcon(type, 64, 'train-front');
+  frontShape.setAttribute('data-front', front.id);
+  const cars = queue.slice(1, 13).map((item) => solidIcon(SHAPE_FOR[sectionOf(item)] || 'sphere', 22, 'car'));
+  const more = queue.length > 13 ? el('span', { class: 'train-count' }, `+${queue.length - 13}`) : null;
+  const sortButtons = namedGroups().map(([id, name], i) =>
+    el('button', { 'data-sort': id }, i < 9 ? el('kbd', {}, String(i + 1)) : null, name));
+  train.append(
+    el('div', { class: 'train-strip' }, frontShape, ...cars, more),
+    el('p', { class: 'train-count' }, `${queue.length} to sort · drag the shape into a group, or:`),
+    el('div', { class: 'train-card' },
+      el('ul', {}, renderTodo(front)),
+      el('div', { class: 'sort-actions' }, ...sortButtons, el('button', { 'data-sort': 'main' }, el('kbd', {}, '0'), 'Leave unsorted')),
+    ),
+  );
 }
 
 // The shelf keeps a socket for every todo, grouped by type; finished ones sit in theirs.
@@ -346,7 +430,7 @@ function renderShelf() {
     const done = members.filter((m) => itemState(m.id).done).length;
     const sockets = members.map((m) => {
       const filled = itemState(m.id).done && !shapes.isFlying(m.id);
-      const icon = solidIcon(type, 26, `slot${filled ? ' filled' : ''}`);
+      const icon = solidIcon(type, 22, `slot${filled ? ' filled' : ''}`);
       icon.setAttribute('data-slot', m.id);
       return icon;
     });
@@ -358,10 +442,12 @@ function renderShelf() {
 }
 
 function renderShapes() {
-  const tasks = shapeTasks();
+  seedGroups();
+  renderTrain();
   renderShelf();
-  shapes.sync(tasks, state.anchors);
-  $('#allclear').hidden = tasks.length > 0;
+  const tasks = shapeTasks();
+  shapes.sync(tasks, state.anchors, state.groupNames);
+  $('#allclear').hidden = tasks.length > 0 || trainTodos().length > 0;
 
   if (openId) {
     const item = findItem(openId);
@@ -369,6 +455,45 @@ function renderShapes() {
     else fillCard(item);
   }
 }
+
+$('#train').addEventListener('click', (event) => {
+  const sort = event.target.closest('[data-sort]');
+  if (sort) {
+    const front = trainTodos()[0];
+    if (front) sortInto(front.id, sort.dataset.sort, $('#train [data-front]'));
+    return;
+  }
+  if (event.target.closest('[data-resort]')) {
+    // Put everything left in the middle back on the train.
+    for (const [id, group] of Object.entries(state.groupOf)) if (group === 'main' && !itemState(id).done) delete state.groupOf[id];
+    save();
+    renderAll();
+  }
+});
+
+// Drag the front shape straight into a group (or anywhere, to start a new one).
+$('#train').addEventListener('pointerdown', (event) => {
+  const front = event.target.closest('[data-front]');
+  if (!front || event.button > 0) return;
+  event.preventDefault();
+  const item = findItem(front.dataset.front);
+  front.classList.add('carrying');
+  shapes.carry({ id: item.id, shape: SHAPE_FOR[sectionOf(item)] || 'sphere', label: item.title, small: item.id.startsWith('split:') }, event);
+  const restore = () => front.isConnected && front.classList.remove('carrying');
+  addEventListener('pointerup', restore, { once: true });
+  addEventListener('pointercancel', restore, { once: true });
+});
+
+document.addEventListener('keydown', (event) => {
+  if (state.view !== 'shapes' || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.target.closest?.('input, textarea, [contenteditable]')) return;
+  const front = trainTodos()[0];
+  if (!front || !/^[0-9]$/.test(event.key)) return;
+  const target = event.key === '0' ? 'main' : namedGroups()[Number(event.key) - 1]?.[0];
+  if (!target) return;
+  event.preventDefault();
+  sortInto(front.id, target, $('#train [data-front]'));
+});
 
 function openCard(id) {
   openId = id;
@@ -432,7 +557,8 @@ document.addEventListener('click', (event) => {
     save();
     if (state.view === 'shapes' && s.done) {
       closeCard();
-      shapes.complete(id, SHAPE_FOR[sectionOf(findItem(id))] || 'sphere');
+      const front = document.querySelector(`#train [data-front="${CSS.escape(id)}"]`);
+      shapes.complete(id, SHAPE_FOR[sectionOf(findItem(id))] || 'sphere', front?.getBoundingClientRect() ?? null);
     }
     return renderAll();
   }
