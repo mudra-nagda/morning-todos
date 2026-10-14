@@ -18,7 +18,7 @@ Switch between **List** and **Shapes** at the top. In Shapes, every open todo is
 - teal hexagonal prism: Linear
 - grey pentagonal prism: cleanup
 
-Click one to see its details. Along the bottom is a shelf with an empty socket for every todo, grouped by type. When you tick a todo done, its object flies into its socket and stays there, so the shelf shows how far through the day you are.
+Click one to see its details. **Drag** a shape into open space to start a group, then drag others next to it and they snap in. Groups can mix shape types, get a faint dashed outline, and stay where you left them. Drop a shape back on the main cluster to return it. Along the bottom is a shelf with an empty socket for every todo, grouped by type. When you tick a todo done, its object flies into its socket and stays there, so the shelf shows how far through the day you are.
 
 You can tick off a whole todo, or **select any part of a todo** to tick off just that part or split it into its own todo. Ticks and splits carry over to the next morning.
 

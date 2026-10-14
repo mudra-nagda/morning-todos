@@ -22,6 +22,8 @@ function loadState() {
     splits: raw?.splits ?? [], // { id, parentId, section, title, links }
     hideDone: Boolean(raw?.hideDone),
     view: raw?.view === 'shapes' ? 'shapes' : 'list',
+    groupOf: raw?.groupOf ?? {}, // todo id -> group you dragged it into in the shapes view
+    anchors: raw?.anchors ?? {}, // group id -> { fx, fy }, where that group sits on screen
   };
 }
 
@@ -301,6 +303,13 @@ const shapes = createShapesView({
     renderShelf();
     $(`#shelf [data-slot="${CSS.escape(id)}"].filled`)?.classList.add('pop');
   },
+  onLayout: ({ anchors, membership }) => {
+    // Keep groupings for done todos too, so a todo you un-tick goes back to its group.
+    const kept = Object.fromEntries(Object.entries(state.groupOf).filter(([id, g]) => itemState(id).done && anchors[g]));
+    state.groupOf = { ...kept, ...membership };
+    state.anchors = anchors;
+    save();
+  },
 });
 let openId = null;
 
@@ -315,7 +324,14 @@ function sectionOf(item) {
 function shapeTasks() {
   return [...data.items, ...state.splits]
     .filter((item) => sectionOf(item) !== 'waiting' && !itemState(item.id).done)
-    .map((item) => ({ id: item.id, shape: SHAPE_FOR[sectionOf(item)] || 'sphere', label: item.title, small: item.id.startsWith('split:') }));
+    .map((item) => ({
+      id: item.id,
+      shape: SHAPE_FOR[sectionOf(item)] || 'sphere',
+      label: item.title,
+      small: item.id.startsWith('split:'),
+      // Split-off todos start in their parent's group.
+      group: state.groupOf[item.id] ?? state.groupOf[item.parentId] ?? 'main',
+    }));
 }
 
 // The shelf keeps a socket for every todo, grouped by type; finished ones sit in theirs.
@@ -344,7 +360,7 @@ function renderShelf() {
 function renderShapes() {
   const tasks = shapeTasks();
   renderShelf();
-  shapes.sync(tasks);
+  shapes.sync(tasks, state.anchors);
   $('#allclear').hidden = tasks.length > 0;
 
   if (openId) {

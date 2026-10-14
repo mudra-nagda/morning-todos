@@ -43,8 +43,6 @@ function ensureDefs() {
   if (document.getElementById('solid-defs')) return;
   const host = svg('svg', { id: 'solid-defs', width: '0', height: '0', 'aria-hidden': 'true', style: 'position:absolute' });
   const defs = svg('defs');
-  const shadow = svg('radialGradient', { id: 'solid-shadow' });
-  shadow.append(svg('stop', { offset: '0', 'stop-color': '#000', 'stop-opacity': '0.3' }), svg('stop', { offset: '1', 'stop-color': '#000', 'stop-opacity': '0' }));
   const sphere = svg('radialGradient', { id: 'solid-sphere', cx: '0.36', cy: '0.32', r: '0.75' });
   sphere.append(
     svg('stop', { offset: '0', 'stop-color': tone(PALETTE.sphere, 26) }),
@@ -53,7 +51,7 @@ function ensureDefs() {
   );
   const gloss = svg('radialGradient', { id: 'solid-gloss' });
   gloss.append(svg('stop', { offset: '0', 'stop-color': '#fff', 'stop-opacity': '0.75' }), svg('stop', { offset: '1', 'stop-color': '#fff', 'stop-opacity': '0' }));
-  defs.append(shadow, sphere, gloss);
+  defs.append(sphere, gloss);
   host.append(defs);
   document.body.prepend(host);
 }
@@ -131,11 +129,10 @@ function buildSolid(type, r) {
   });
 }
 
-// A shaded solid with a soft contact shadow underneath it.
-export function solid(type, r, { shadow = true } = {}) {
+// A shaded solid, lit from the upper left.
+export function solid(type, r) {
   ensureDefs();
   const group = svg('g');
-  if (shadow) group.append(svg('ellipse', { class: 'contact', cx: 0, cy: r * 1.02, rx: r * 0.86, ry: r * 0.22, fill: 'url(#solid-shadow)' }));
   const body = svg('g', { class: 'solid' });
   body.append(...buildSolid(type, r));
   group.append(body);
@@ -144,33 +141,53 @@ export function solid(type, r, { shadow = true } = {}) {
 
 export function solidIcon(type, size, className = '') {
   const icon = svg('svg', { width: size, height: size, viewBox: `${-size / 2} ${-size / 2} ${size} ${size}`, class: `icon ${className}`, 'aria-hidden': 'true' });
-  icon.append(solid(type, size / 2 - 2, { shadow: false }));
+  icon.append(solid(type, size / 2 - 2));
   return icon;
 }
 
-// Shapes are pulled toward the centre like a magnet and pushed apart where they
-// overlap, so they settle into a loose cluster. The loop sleeps once things stop moving.
-export function createShapesView({ field, shelf, onSelect, onBackground, onLanded }) {
+// Every shape is pulled toward its group's anchor like a magnet and pushed off
+// its neighbours, so groups settle into loose clusters. The main group's anchor is
+// the centre of the screen; groups you make by dragging sit where you made them.
+export function createShapesView({ field, shelf, onSelect, onBackground, onLanded, onLayout }) {
   const bodies = new Map();
+  const groups = new Map(); // id -> { x, y } for groups you've made; 'main' is always the centre
   const flying = new Set();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const halos = svg('g', { class: 'halos' });
+  field.append(halos);
   let size = { w: 0, h: 0 };
   let running = false;
   let frames = 0;
   let queue = Promise.resolve();
+  let drag = null;
 
   function measure() {
     const rect = field.getBoundingClientRect();
+    const old = size;
     size = { w: rect.width, h: rect.height };
     field.setAttribute('viewBox', `0 0 ${size.w} ${size.h}`);
+    // Keep made groups in the same relative spot when the window changes size.
+    if (old.w && size.w) {
+      for (const g of groups.values()) {
+        g.x *= size.w / old.w;
+        g.y *= size.h / old.h;
+      }
+    }
   }
   new ResizeObserver(() => {
     measure();
     kick();
   }).observe(field);
 
-  function sync(tasks) {
+  const anchorOf = (id) => (id !== 'main' && groups.get(id)) || { x: size.w / 2, y: size.h / 2 };
+  const active = () => [...bodies.values()].filter((b) => !b.leaving);
+
+  // tasks: [{ id, shape, label, small, group }], anchors: { groupId: { fx, fy } } as fractions of the field.
+  function sync(tasks, anchors = {}) {
     if (!size.w) measure();
+    for (const [id, a] of Object.entries(anchors)) {
+      if (!groups.has(id)) groups.set(id, { x: a.fx * size.w, y: a.fy * size.h });
+    }
     const keep = new Set(tasks.map((t) => t.id));
     for (const [id, body] of bodies) {
       if (!keep.has(id) && !body.leaving) {
@@ -190,13 +207,28 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
         body.g.append(body.title, solid(task.shape, r));
         field.append(body.g);
         bodies.set(task.id, body);
+        body.group = groups.has(task.group) ? task.group : 'main';
       }
       body.shape = task.shape;
       body.title.textContent = task.label;
       body.g.setAttribute('aria-label', task.label);
     }
+    dropEmptyGroups();
     draw();
     kick();
+  }
+
+  function dropEmptyGroups() {
+    const used = new Set(active().map((b) => b.group));
+    for (const id of groups.keys()) if (!used.has(id)) groups.delete(id);
+  }
+
+  function layout() {
+    const anchors = {};
+    for (const [id, g] of groups) anchors[id] = { fx: g.x / size.w, fy: g.y / size.h };
+    const membership = {};
+    for (const b of active()) if (b.group !== 'main') membership[b.id] = b.group;
+    return { anchors, membership };
   }
 
   let lastFrameAt = 0;
@@ -228,25 +260,29 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
     const energy = step();
     draw();
     frames++;
-    if (frames < 30 || energy > 0.01 * bodies.size) requestAnimationFrame(tick);
-    else running = false;
+    if (drag?.moved || frames < 30 || energy > 0.01 * bodies.size) requestAnimationFrame(tick);
+    else {
+      running = false;
+      onLayout(layout());
+    }
   }
 
   function step() {
-    const active = [...bodies.values()].filter((b) => !b.leaving);
-    const cx = size.w / 2;
-    const cy = size.h / 2;
-    for (const b of active) {
-      b.vx = (b.vx + (cx - b.x) * 0.012) * 0.84;
-      b.vy = (b.vy + (cy - b.y) * 0.012) * 0.84;
+    const list = active();
+    for (const b of list) {
+      if (b.dragging) continue;
+      const a = anchorOf(b.group);
+      const pull = b.group === 'main' ? 0.012 : 0.022;
+      b.vx = (b.vx + (a.x - b.x) * pull) * 0.84;
+      b.vy = (b.vy + (a.y - b.y) * pull) * 0.84;
       b.x += b.vx;
       b.y += b.vy;
     }
     for (let pass = 0; pass < 3; pass++) {
-      for (let i = 0; i < active.length; i++) {
-        for (let j = i + 1; j < active.length; j++) {
-          const a = active[i];
-          const c = active[j];
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const a = list[i];
+          const c = list[j];
           let dx = c.x - a.x;
           let dy = c.y - a.y;
           if (!dx && !dy) {
@@ -255,31 +291,93 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
             dy = Math.random() - 0.5;
           }
           const d = Math.hypot(dx, dy);
-          const min = a.r + c.r + 10;
+          // Shapes in different groups keep a wider gap, so groups read as separate.
+          const min = a.r + c.r + (a.group === c.group ? 10 : 36);
           if (d >= min) continue;
-          const push = (min - d) / 2;
+          const overlap = min - d;
           dx /= d;
           dy /= d;
-          a.x -= dx * push;
-          a.y -= dy * push;
-          c.x += dx * push;
-          c.y += dy * push;
+          // The shape you're dragging stays under your finger; only its neighbours move.
+          const shareA = a.dragging ? 0 : c.dragging ? 1 : 0.5;
+          a.x -= dx * overlap * shareA;
+          a.y -= dy * overlap * shareA;
+          c.x += dx * overlap * (1 - shareA);
+          c.y += dy * overlap * (1 - shareA);
         }
       }
     }
-    return active.reduce((sum, b) => sum + b.vx * b.vx + b.vy * b.vy, 0);
+    separateGroups(list);
+    return list.reduce((sum, b) => sum + b.vx * b.vx + b.vy * b.vy, 0);
+  }
+
+  // Groups you've made drift apart from each other and from the main cluster if they crowd it.
+  function separateGroups(list) {
+    const counts = new Map();
+    for (const b of list) counts.set(b.group, (counts.get(b.group) || 0) + 1);
+    const reach = (id) => Math.sqrt(counts.get(id) || 1) * 26 + 24;
+    const ids = ['main', ...groups.keys()];
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const a = anchorOf(ids[i]);
+        const c = anchorOf(ids[j]);
+        const dx = c.x - a.x;
+        const dy = c.y - a.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const min = reach(ids[i]) + reach(ids[j]) + 24;
+        if (d >= min) continue;
+        const push = (min - d) * 0.08;
+        const movable = [ids[i], ids[j]].filter((id) => id !== 'main');
+        for (const id of movable) {
+          const g = groups.get(id);
+          const sign = id === ids[i] ? -1 : 1;
+          g.x += (sign * dx * push) / d / movable.length;
+          g.y += (sign * dy * push) / d / movable.length;
+        }
+      }
+    }
+    for (const [id, g] of groups) {
+      const margin = reach(id);
+      g.x = Math.min(Math.max(g.x, margin), size.w - margin);
+      g.y = Math.min(Math.max(g.y, margin), size.h - margin);
+    }
   }
 
   let paintOrder = '';
   function draw() {
     // Paint lower shapes last so they sit in front, like objects on a table.
-    const ordered = [...bodies.values()].filter((b) => !b.leaving).sort((a, b) => a.y - b.y);
+    const ordered = active().sort((a, b) => a.y - b.y);
     for (const b of ordered) b.g.setAttribute('transform', `translate(${b.x.toFixed(1)} ${b.y.toFixed(1)})`);
     const order = ordered.map((b) => b.id).join('|');
     if (order !== paintOrder) {
       paintOrder = order;
       for (const b of ordered) field.append(b.g);
     }
+    drawHalos(ordered);
+  }
+
+  // A faint dashed outline around each group you've made, so it reads as a bucket.
+  function drawHalos(list) {
+    const members = new Map();
+    for (const b of list) {
+      if (b.group === 'main' || b.dragging) continue;
+      if (!members.has(b.group)) members.set(b.group, []);
+      members.get(b.group).push(b);
+    }
+    const seen = new Set();
+    for (const [id, group] of members) {
+      if (group.length < 2) continue;
+      seen.add(id);
+      const cx = group.reduce((s, b) => s + b.x, 0) / group.length;
+      const cy = group.reduce((s, b) => s + b.y, 0) / group.length;
+      const r = Math.max(...group.map((b) => Math.hypot(b.x - cx, b.y - cy) + b.r)) + 14;
+      let halo = halos.querySelector(`[data-group="${id}"]`);
+      if (!halo) halos.append((halo = svg('circle', { class: 'halo', 'data-group': id })));
+      halo.setAttribute('cx', cx.toFixed(1));
+      halo.setAttribute('cy', cy.toFixed(1));
+      halo.setAttribute('r', r.toFixed(1));
+      halo.classList.toggle('target', drag?.target?.group === id);
+    }
+    for (const halo of [...halos.children]) if (!seen.has(halo.dataset.group)) halo.remove();
   }
 
   function select(id) {
@@ -287,8 +385,102 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
     for (const b of bodies.values()) b.g.classList.toggle('selected', b.id === id);
   }
 
-  // The shape flies from the cluster into its socket on the shelf, and the
-  // socket fills in when it lands. Several completions take turns.
+  // ---------- dragging ----------
+
+  const local = (event) => {
+    const rect = field.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  };
+
+  // The closest shape you're near enough to stick to, if any.
+  function magnetFor(body) {
+    let best = null;
+    let bestDistance = Infinity;
+    for (const other of active()) {
+      if (other === body) continue;
+      const d = Math.hypot(other.x - body.x, other.y - body.y);
+      if (d < other.r + body.r + 34 && d < bestDistance) {
+        best = other;
+        bestDistance = d;
+      }
+    }
+    return best;
+  }
+
+  field.addEventListener('pointerdown', (event) => {
+    if (event.button > 0) return;
+    const g = event.target.closest('.body:not(.leaving)');
+    drag = { id: g?.dataset.id ?? null, x: event.clientX, y: event.clientY, moved: false, target: null };
+  });
+
+  field.addEventListener('pointermove', (event) => {
+    if (!drag?.id) return;
+    const body = bodies.get(drag.id);
+    if (!body) return;
+    if (!drag.moved) {
+      if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 5) return;
+      drag.moved = true;
+      field.setPointerCapture(event.pointerId);
+      body.dragging = true;
+      body.g.classList.add('dragging');
+    }
+    const p = local(event);
+    body.x = p.x;
+    body.y = p.y;
+    body.vx = 0;
+    body.vy = 0;
+    const target = magnetFor(body);
+    if (target !== drag.target) {
+      drag.target?.g.classList.remove('magnet');
+      target?.g.classList.add('magnet');
+      drag.target = target;
+    }
+    kick();
+  });
+
+  function endDrag(event, cancelled) {
+    if (!drag) return;
+    const { id, moved, target } = drag;
+    drag = null;
+    if (!moved) {
+      if (cancelled) return;
+      if (id) onSelect(id);
+      else onBackground();
+      return;
+    }
+    const body = bodies.get(id);
+    target?.g.classList.remove('magnet');
+    if (!body) return;
+    body.dragging = false;
+    body.g.classList.remove('dragging');
+    if (target) {
+      // Dropped next to a shape: join its group (or the main cluster).
+      body.group = target.group;
+    } else {
+      // Dropped in open space: this shape starts a new group right here.
+      const groupId = `g${Math.random().toString(36).slice(2, 8)}`;
+      groups.set(groupId, { x: body.x, y: body.y });
+      body.group = groupId;
+    }
+    dropEmptyGroups();
+    onLayout(layout());
+    kick();
+  }
+  field.addEventListener('pointerup', (event) => endDrag(event, false));
+  field.addEventListener('pointercancel', (event) => endDrag(event, true));
+
+  field.addEventListener('keydown', (event) => {
+    const body = event.target.closest('.body');
+    if (body && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      onSelect(body.dataset.id);
+    }
+  });
+
+  // ---------- completing ----------
+
+  // The shape flies from its group into its socket on the shelf, and the socket
+  // fills in when it lands. Several completions take turns.
   function complete(id, type) {
     const body = bodies.get(id);
     flying.add(id);
@@ -310,12 +502,13 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
       const to = { x: socketRect.left + socketRect.width / 2, y: socketRect.top + socketRect.height / 2 };
       const box = body.r * 2 + 8;
       const flyer = svg('svg', { class: 'flyer', width: box, height: box, viewBox: `${-box / 2} ${-box / 2} ${box} ${box}` });
-      flyer.append(solid(type, body.r, { shadow: false }));
+      flyer.append(solid(type, body.r));
       flyer.style.left = `${from.x - box / 2}px`;
       flyer.style.top = `${from.y - box / 2}px`;
       document.body.append(flyer);
       body.g.remove();
       bodies.delete(id);
+      dropEmptyGroups();
       kick();
       const scale = (socketRect.width / 2 - 2) / body.r;
       const lift = Math.min(120, Math.abs(to.y - from.y) * 0.35);
@@ -339,6 +532,7 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
     } else if (body) {
       body.g.remove();
       bodies.delete(id);
+      dropEmptyGroups();
       kick();
     }
     flying.delete(id);
@@ -346,19 +540,6 @@ export function createShapesView({ field, shelf, onSelect, onBackground, onLande
     onLanded(id);
     await wait(reduced ? 0 : 120);
   }
-
-  field.addEventListener('click', (event) => {
-    const body = event.target.closest('.body:not(.leaving)');
-    if (body) onSelect(body.dataset.id);
-    else onBackground();
-  });
-  field.addEventListener('keydown', (event) => {
-    const body = event.target.closest('.body');
-    if (body && (event.key === 'Enter' || event.key === ' ')) {
-      event.preventDefault();
-      onSelect(body.dataset.id);
-    }
-  });
 
   return { sync, select, complete, kick, isFlying: (id) => flying.has(id) };
 }
