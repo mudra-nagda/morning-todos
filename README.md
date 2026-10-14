@@ -8,7 +8,17 @@ A personal todo page that rebuilds itself every morning at **8am Pacific** from:
 
 When someone left a message, review or question, it shows in a small box under the todo with their name.
 
-Switch between **List** and **Shapes** at the top. In Shapes, every open todo is a shape that collects at the centre of the screen: ★ do first, ■ your PRs, ▲ ready to merge, ● reviews for others, ◆ Slack, ⬢ Linear, ⬟ cleanup. Click a shape to see its details. Tick it done and a tray of slots for that shape rises from the bottom, the shape drops into its slot, and the tray slides away.
+Switch between **List** and **Shapes** at the top. In Shapes, every open todo is a small 3D object that collects at the centre of the screen. The object depends on the task type:
+
+- red star: do first
+- blue cube: your PRs
+- green pyramid: ready to merge
+- amber sphere: reviews for others
+- purple gem: Slack
+- teal hexagonal prism: Linear
+- grey pentagonal prism: cleanup
+
+Click one to see its details. Along the bottom is a shelf with an empty socket for every todo, grouped by type. When you tick a todo done, its object flies into its socket and stays there, so the shelf shows how far through the day you are.
 
 You can tick off a whole todo, or **select any part of a todo** to tick off just that part or split it into its own todo. Ticks and splits carry over to the next morning.
 

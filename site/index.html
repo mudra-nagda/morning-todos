@@ -27,12 +27,13 @@
   </main>
 
   <section id="shapes" hidden>
-    <p id="legend"></p>
-    <svg id="field" role="group" aria-label="Your todos as shapes"></svg>
-    <p class="allclear" id="allclear" hidden>All clear.</p>
+    <div class="stage">
+      <svg id="field" role="group" aria-label="Your todos as shapes"></svg>
+      <p class="allclear" id="allclear" hidden>All clear.</p>
+    </div>
+    <div id="shelf" aria-label="Done so far"></div>
   </section>
   <div id="card" role="dialog" aria-label="Todo details" hidden></div>
-  <div id="tray" aria-hidden="true" hidden></div>
 
   <div id="selbar" role="toolbar" aria-label="Selected text" hidden>
     <button data-action="done">Tick off</button>

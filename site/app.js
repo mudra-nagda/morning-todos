@@ -1,4 +1,4 @@
-import { createShapesView, shapeIcon, SHAPE_FOR } from './shapes.js';
+import { createShapesView, solidIcon, SHAPE_FOR } from './shapes.js';
 
 const STATE_KEY = 'morning-todos:v2';
 const PASS_KEY = 'morning-todos:passphrase';
@@ -294,54 +294,58 @@ function flash(id) {
 
 const shapes = createShapesView({
   field: $('#field'),
-  tray: $('#tray'),
+  shelf: $('#shelf'),
   onSelect: openCard,
   onBackground: closeCard,
+  onLanded: (id) => {
+    renderShelf();
+    $(`#shelf [data-slot="${CSS.escape(id)}"].filled`)?.classList.add('pop');
+  },
 });
 let openId = null;
 
-// Every open todo (not "waiting on others"), with split-off todos taking their parent's shape.
-function shapeTasks() {
-  const byId = new Map(data.items.map((i) => [i.id, i]));
-  const tasks = [];
-  const add = (item, section, small) => {
-    if (itemState(item.id).done) return;
-    tasks.push({ id: item.id, section, shape: SHAPE_FOR[section] || 'circle', label: item.title, small, urgent: section === 'urgent' });
-  };
-  for (const item of data.items) if (item.section !== 'waiting') add(item, item.section, false);
-  for (const split of state.splits) {
-    const parent = byId.get(split.parentId);
-    if (parent?.section === 'waiting') continue;
-    add(split, parent ? parent.section : 'orphans', true);
-  }
-  return tasks;
+const ALL_SECTIONS = () => [...data.sections, { id: 'orphans', title: 'Split out' }];
+
+// Split-off todos belong to their parent's section, or "Split out" if the parent is gone.
+function sectionOf(item) {
+  if (!item.id.startsWith('split:')) return item.section;
+  return data.items.find((i) => i.id === item.parentId)?.section ?? 'orphans';
 }
 
-function trayFor(id) {
-  const item = findItem(id);
-  const section = item.id.startsWith('split:') ? (data.items.find((i) => i.id === item.parentId)?.section ?? 'orphans') : item.section;
-  const sectionOf = (other) => (other.id.startsWith('split:') ? (data.items.find((i) => i.id === other.parentId)?.section ?? 'orphans') : other.section);
-  const members = [...data.items, ...state.splits].filter((other) => sectionOf(other) === section);
-  return {
-    shape: SHAPE_FOR[section] || 'circle',
-    title: [...data.sections, { id: 'orphans', title: 'Split out' }].find((s) => s.id === section)?.title ?? '',
-    slots: members.map((other) => ({ id: other.id, done: other.id !== id && itemState(other.id).done })),
-  };
+function shapeTasks() {
+  return [...data.items, ...state.splits]
+    .filter((item) => sectionOf(item) !== 'waiting' && !itemState(item.id).done)
+    .map((item) => ({ id: item.id, shape: SHAPE_FOR[sectionOf(item)] || 'sphere', label: item.title, small: item.id.startsWith('split:') }));
+}
+
+// The shelf keeps a socket for every todo, grouped by type; finished ones sit in theirs.
+function renderShelf() {
+  const shelf = $('#shelf');
+  shelf.replaceChildren();
+  for (const section of ALL_SECTIONS()) {
+    if (section.id === 'waiting') continue;
+    const members = [...data.items, ...state.splits].filter((item) => sectionOf(item) === section.id);
+    if (!members.length) continue;
+    const type = SHAPE_FOR[section.id] || 'sphere';
+    const done = members.filter((m) => itemState(m.id).done).length;
+    const sockets = members.map((m) => {
+      const filled = itemState(m.id).done && !shapes.isFlying(m.id);
+      const icon = solidIcon(type, 26, `slot${filled ? ' filled' : ''}`);
+      icon.setAttribute('data-slot', m.id);
+      return icon;
+    });
+    shelf.append(el('div', { class: 'group' },
+      el('div', { class: 'group-label' }, el('b', {}, section.title), ` ${done}/${members.length}`),
+      el('div', { class: 'sockets' }, ...sockets),
+    ));
+  }
 }
 
 function renderShapes() {
   const tasks = shapeTasks();
+  renderShelf();
   shapes.sync(tasks);
   $('#allclear').hidden = tasks.length > 0;
-
-  const counts = new Map();
-  for (const t of tasks) counts.set(t.section, (counts.get(t.section) || 0) + 1);
-  const legend = $('#legend');
-  legend.replaceChildren();
-  for (const section of [...data.sections, { id: 'orphans', title: 'Split out' }]) {
-    if (!counts.get(section.id)) continue;
-    legend.append(el('span', {}, shapeIcon(SHAPE_FOR[section.id], 14), `${section.title} ${counts.get(section.id)}`));
-  }
 
   if (openId) {
     const item = findItem(openId);
@@ -362,6 +366,7 @@ function fillCard(item) {
     el('button', { class: 'close', 'aria-label': 'Close' }, '×'),
     el('ul', {}, renderTodo(item)),
   );
+  card.style.bottom = `${$('#shelf').offsetHeight + 16}px`;
   card.hidden = false;
   card.querySelector('.close').onclick = closeCard;
 }
@@ -411,7 +416,7 @@ document.addEventListener('click', (event) => {
     save();
     if (state.view === 'shapes' && s.done) {
       closeCard();
-      shapes.complete(id, trayFor(id));
+      shapes.complete(id, SHAPE_FOR[sectionOf(findItem(id))] || 'sphere');
     }
     return renderAll();
   }
