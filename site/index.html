@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Morning list</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%E2%98%80%EF%B8%8F%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="page">
+    <header class="top">
+      <div>
+        <h1 id="today">Morning list</h1>
+        <p class="sub" id="refreshed"></p>
+      </div>
+      <div class="controls" id="controls" hidden>
+        <span class="progress" id="progress"></span>
+        <label class="toggle"><input type="checkbox" id="hide-done"> Hide done</label>
+        <button class="ghost" id="lock" hidden>Lock</button>
+      </div>
+    </header>
+
+    <p class="hint" id="hint" hidden>Select any part of a todo to tick off just that part, or to split it into its own todo.</p>
+    <div id="notices"></div>
+    <div id="list" aria-live="polite"></div>
+
+    <form class="unlock" id="unlock" hidden>
+      <h2>Unlock today's list</h2>
+      <p>Your todos are encrypted. Enter the passphrase you saved as <code>TODO_PASSPHRASE</code>.</p>
+      <input type="password" id="passphrase" autocomplete="current-password" placeholder="Passphrase" required>
+      <label class="toggle"><input type="checkbox" id="remember" checked> Remember on this device</label>
+      <button type="submit" id="unlock-btn">Unlock</button>
+      <p class="error" id="unlock-error" role="alert"></p>
+    </form>
+  </main>
+
+  <div class="selbar" id="selbar" role="toolbar" aria-label="Selected text" hidden>
+    <button data-action="done">✓ Tick off this part</button>
+    <button data-action="split">↳ Split into new todo</button>
+  </div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

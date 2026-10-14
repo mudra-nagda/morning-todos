@@ -1,0 +1,5 @@
+# Generated todo data is never committed: it's built into the Pages artifact by the workflow.
+site/data/*
+!site/data/.gitkeep
+node_modules/
+.DS_Store
