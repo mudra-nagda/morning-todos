@@ -10,7 +10,7 @@ When someone left a message, review or question, it shows in a small box under t
 
 Switch between **List** and **Shapes** at the top.
 
-**Shapes** is for sorting your morning. The todo you're deciding on sits in the middle of the page as a big 3D shape, with what to do and who said what underneath it. The rest of today's unsorted todos queue up to its right, off the edge of the screen; scroll sideways, or click one to bring it to the middle. Sort it into a group along the bottom (click the group, drag the shape down, or press its number), mark it **Done** (`D`), or **Skip** it to the end of the line (`→`). Groups start as *Now · Today · Later*; double-click a name to rename it, or press **+** to add one. A small scorecard in the top right counts what you've finished of each kind.
+**Shapes** is for sorting your morning. The todo you're deciding on sits in the middle of the page as a big 3D shape, with what to do and who said what underneath it. The rest of today's unsorted todos queue up to its right, off the edge of the screen; scroll sideways, or click one to bring it to the middle. Sort it into a group along the bottom (click the group, drag the shape down, or press its number), mark it **Done** (`D`), or **Skip** it to the end of the line (`→`). Groups start as *Now · Today · Later*; double-click a name to rename it, or press **+** to add one. A small scorecard in the top right has a row of sockets for each kind of todo; finished shapes fly into the next empty one.
 
 Shapes: red star = do first · blue cube = your PRs · green pyramid = ready to merge · amber sphere = reviews for others · purple gem = Slack · teal prism = Linear · grey prism = cleanup.
 

@@ -1,4 +1,4 @@
-:root { color-scheme: light dark; --muted: #8a8a8a; --line: rgba(128, 128, 128, 0.22); --done: #3f8f55; --alert: #c4382b; }
+:root { color-scheme: light dark; --muted: #8a8a8a; --line: rgba(128, 128, 128, 0.22); --done: #3f8f55; --alert: #c4382b; --socket: color-mix(in srgb, CanvasText 11%, Canvas); }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -63,9 +63,11 @@ ul { list-style: none; margin: 0; padding: 0; }
 #shapes { position: fixed; left: 0; right: 0; bottom: 0; display: grid; grid-template-rows: 1fr minmax(200px, 36%); }
 .shapes-mode .sub, .shapes-mode #notice { display: none; }
 
-#score { position: fixed; top: 28px; right: 28px; display: flex; gap: 14px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.score { display: inline-flex; align-items: center; gap: 4px; }
-.score .icon.pop .solid { transform-box: fill-box; transform-origin: center; animation: pop 0.4s cubic-bezier(0.3, 0.7, 0.3, 1.6); }
+#score { position: fixed; top: 24px; right: 24px; display: grid; justify-items: start; gap: 3px; }
+.score-row { display: flex; gap: 1px; }
+.slot:not(.filled) .face { fill: var(--socket) !important; stroke: var(--socket) !important; }
+.slot:not(.filled) .gloss { display: none; }
+.slot.pop .solid { transform-box: fill-box; transform-origin: center; animation: pop 0.4s cubic-bezier(0.3, 0.7, 0.3, 1.6); }
 @keyframes pop { from { transform: scale(1.8); } }
 
 .upper { position: relative; min-height: 0; }

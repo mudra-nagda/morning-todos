@@ -313,7 +313,7 @@ export function createShapesView({ field, labels, onSelect, onPlaced, onMoved, o
       paintOrder = order;
       for (const b of ordered) field.append(b.g);
     }
-    for (const rect of cols.children) rect.classList.toggle('target', drag?.moved && drag.over === rect.dataset.group);
+    for (const rect of cols.children) rect.classList.toggle('target', Boolean(drag?.moved && drag.over === rect.dataset.group));
   }
 
   function select(id) {

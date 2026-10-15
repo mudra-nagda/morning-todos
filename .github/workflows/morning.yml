@@ -54,6 +54,10 @@ jobs:
           git add data/meta.json
           git diff --cached --quiet || (git commit -m "chore: refresh todos" && git push)
 
+      # Stamp this deploy's version on the page's files so browsers never mix old and new code.
+      - if: steps.gate.outputs.run == 'true'
+        run: sed -i "s/__VERSION__/${GITHUB_SHA::7}/g" site/index.html site/app.js
+
       - if: steps.gate.outputs.run == 'true'
         uses: actions/configure-pages@v5
 

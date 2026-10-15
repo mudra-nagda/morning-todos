@@ -1,4 +1,4 @@
-import { createShapesView, solidIcon, SHAPE_FOR } from './shapes.js';
+import { createShapesView, solidIcon, SHAPE_FOR } from './shapes.js?v=__VERSION__';
 
 const STATE_KEY = 'morning-todos:v2';
 const PASS_KEY = 'morning-todos:passphrase';
@@ -383,11 +383,11 @@ function markDone(id, fromEl) {
   closeCard();
   const type = typeOf(item);
   flyingIds.add(id);
-  shapes.complete(id, type, fromEl?.getBoundingClientRect() ?? null, () => $(`#score [data-score="${type}"] .icon`)).then(() => {
+  // It flies to the next empty socket in its row, which fills in when it lands.
+  shapes.complete(id, type, fromEl?.getBoundingClientRect() ?? null, () => $(`#score [data-score="${type}"] .slot:not(.filled)`)).then(() => {
     flyingIds.delete(id);
     renderScore();
-    const icon = $(`#score [data-score="${type}"] .icon`);
-    icon?.classList.add('pop');
+    [...document.querySelectorAll(`#score [data-score="${type}"] .slot.filled`)].at(-1)?.classList.add('pop');
   });
   renderAll();
 }
@@ -432,7 +432,7 @@ function renderFocus() {
   ].filter(Boolean));
 }
 
-// Top right: how many of each kind you've finished today.
+// Top right: a row of sockets per kind of todo, filling left to right as you finish them.
 function renderScore() {
   const score = $('#score');
   score.replaceChildren();
@@ -442,7 +442,8 @@ function renderScore() {
     if (!members.length) continue;
     const type = SHAPE_FOR[section.id] || 'sphere';
     const done = members.filter((m) => itemState(m.id).done && !flyingIds.has(m.id)).length;
-    score.append(el('span', { class: 'score', 'data-score': type, title: section.title }, solidIcon(type, 18), `${done}/${members.length}`));
+    const sockets = members.map((_, i) => solidIcon(type, 20, `slot${i < done ? ' filled' : ''}`));
+    score.append(el('div', { class: 'score-row', 'data-score': type, title: `${section.title}: ${done} of ${members.length} done` }, ...sockets));
   }
 }
 
