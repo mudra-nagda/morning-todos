@@ -3,3 +3,4 @@ site/data/*
 !site/data/.gitkeep
 node_modules/
 .DS_Store
+.claude/
