@@ -19,7 +19,14 @@ const SECTIONS = [
   { id: 'waiting', title: 'Waiting on others', collapsed: true },
 ];
 
-const env = process.env;
+// Trim stray spaces or newlines from pasted secrets.
+const env = Object.fromEntries(Object.entries(process.env).map(([k, v]) => [k, typeof v === 'string' ? v.trim() : v]));
+
+// Say whether each key looks like the right kind, without printing any of it.
+const SHAPES = { GH_TOKEN: [/^(github_pat_|ghp_)/, 'a GitHub token (github_pat_… or ghp_…)'], LINEAR_API_KEY: [/^lin_api_/, 'a Linear API key (lin_api_…)'], SLACK_USER_TOKEN: [/^xoxp-/, 'a Slack user token (xoxp-…)'] };
+for (const [name, [pattern, kind]] of Object.entries(SHAPES)) {
+  if (env[name] && !pattern.test(env[name])) console.log(`${name} doesn't look like ${kind}. Check it's the right key in the right secret.`);
+}
 const now = env.NOW ? new Date(env.NOW) : new Date();
 const plainIndex = process.argv.indexOf('--plain');
 const plainOut = plainIndex > -1 ? process.argv[plainIndex + 1] : null;
